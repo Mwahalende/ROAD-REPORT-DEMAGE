@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Manager Dashboard</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f4f6f8;
+      padding: 20px;
+    }
+    h2 {
+      text-align: center;
+    }
+    .filters {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    input, select, button {
+      padding: 10px;
+      font-size: 14px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 8px;
+      font-size: 13px;
+    }
+    .budget-input {
+      width: 100px;
+    }
+    .save-btn {
+      background: #28a745;
+      color: white;
+      border: none;
+      padding: 5px 10px;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    .export-buttons {
+      text-align: center;
+      margin: 10px;
+    }
+    .export-buttons button {
+      margin: 0 5px;
+      background: #007bff;
+      color: white;
+      border: none;
+      padding: 6px 12px;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    .export-buttons button:hover {
+      background: #0056b3;
+    }
+  </style>
+</head>
+<body>
+
+  <h2>Manager </h2>
+
+  <div class="filters">
+    <input type="text" id="filterRoad" placeholder="Filter by Road" />
+    <input type="date" id="startDate" />
+    <input type="date" id="endDate" />
+    <button onclick="applyFilters()">Apply Filters</button>
+  </div>
+
+  <div class="export-buttons">
+    <button onclick="exportCSV()">Export CSV</button>
+    <button onclick="exportPDF()">Export PDF</button>
+  </div>
+
+  <table id="reportTable">
+    <thead>
+      <tr>
+        <th>Road</th>
+        <th>Damage Class</th>
+        <th>User</th>
+        <th>Date</th>
+        <th>Stage</th>
+        <th>Contractor</th>
+        <th>Repair Cost</th>
+        <th>Budget</th>
+        <th>Action</th>
+      </tr>
+    </thead>
+    <tbody id="tableBody"></tbody>
+  </table>
+
+  <script>
+    const role = localStorage.getItem('role');
+    if (role !== 'Manager') {
+      alert('Access denied. Only managers can view this page.');
+      window.location.href = 'serveryerlogin.html';
+    }
+
+    let allReports = [];
+    let damageCosts = {};
+
+    async function fetchReports() {
+      const res = await fetch('/get-all-photos');
+      const data = await res.json();
+      allReports = data.photos;
+
+      const costRes = await fetch('/damage-class');
+      const costData = await costRes.json();
+      damageCosts = {};
+      costData.forEach(c => {
+        damageCosts[c.damageClass] = c.repairCost;
+      });
+
+      renderTable(allReports);
+    }
+
+    function getStage(p) {
+      if (p.budget) return 'Stage3 (Manager)';
+      if (['approved', 'cancelled', 'rejected'].includes(p.approvalStatus)) return 'Stage2 (Officer)';
+      return 'Stage1 (Surveyor)';
+    }
+
+    function applyFilters() {
+      const road = document.getElementById('filterRoad').value.toLowerCase();
+      const start = document.getElementById('startDate').value;
+      const end = document.getElementById('endDate').value;
+
+      const filtered = allReports.filter(p => {
+        const matchRoad = !road || p.roadName.toLowerCase().includes(road);
+        const matchStart = !start || new Date(p.dateCreated) >= new Date(start);
+        const matchEnd = !end || new Date(p.dateCreated) <= new Date(end);
+        return matchRoad && matchStart && matchEnd;
+      });
+
+      renderTable(filtered);
+    }
+
+    function renderTable(reports) {
+      const tbody = document.getElementById('tableBody');
+      tbody.innerHTML = '';
+      reports.forEach(p => {
+        const repairCost = damageCosts[p.damageClass] || '-';
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${p.roadName}</td>
+          <td>${p.damageClass}</td>
+          <td>${p.email}</td>
+          <td>${new Date(p.dateCreated).toLocaleDateString()}</td>
+          <td>${getStage(p)}</td>
+          <td>${p.contractor || '-'}</td>
+          <td>${repairCost.toLocaleString()} Tsh</td>
+          <td>
+            <input type="number" class="budget-input" value="${p.budget || ''}" id="budget-${p._id}" />
+          </td>
+          <td>
+            <button class="save-btn" onclick="saveBudget('${p._id}')">Save</button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    async function saveBudget(id) {
+      const input = document.getElementById(`budget-${id}`);
+      const value = parseFloat(input.value);
+      if (!value || value <= 0) {
+        return alert('Enter a valid budget amount.');
+      }
+
+      const res = await fetch(`/update-budget/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ budget: value })
+      });
+
+      const data = await res.json();
+      alert(data.message || 'Updated.');
+      fetchReports();
+    }
+
+    function exportCSV() {
+      if (!allReports.length) return alert('No reports to export.');
+      const headers = ['Road', 'Damage Class', 'User', 'Date', 'Stage', 'Contractor', 'Repair Cost', 'Budget'];
+      const rows = allReports.map(p => {
+        const repairCost = damageCosts[p.damageClass] || '-';
+        return [
+          `"${p.roadName}"`,
+          `"${p.damageClass}"`,
+          `"${p.email}"`,
+          `"${new Date(p.dateCreated).toLocaleDateString()}"`,
+          `"${getStage(p)}"`,
+          `"${p.contractor || '-'}"`,
+          `"${repairCost}"`,
+          `"${p.budget || '-'}"`
+        ];
+      });
+
+      let csv = headers.join(',') + '\n' + rows.map(r => r.join(',')).join('\n');
+
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `manager_report_${Date.now()}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+
+    async function exportPDF() {
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF();
+      doc.setFontSize(12);
+      let y = 10;
+
+      allReports.forEach((p, i) => {
+        if (y > 270) {
+          doc.addPage();
+          y = 10;
+        }
+        const repairCost = damageCosts[p.damageClass] || '-';
+        const lines = [
+          `#${i + 1}`,
+          `Road: ${p.roadName}`,
+          `Damage Class: ${p.damageClass}`,
+          `User: ${p.email}`,
+          `Date: ${new Date(p.dateCreated).toLocaleDateString()}`,
+          `Stage: ${getStage(p)}`,
+          `Contractor: ${p.contractor || '-'}`,
+          `Repair Cost: ${repairCost} TZS`,
+          `Budget: ${p.budget || '-'}`
+        ];
+        lines.forEach((line, index) => {
+          doc.text(line, 10, y + (index * 6));
+        });
+        y += lines.length * 6 + 4;
+      });
+
+      doc.save(`manager_report_${Date.now()}.pdf`);
+    }
+
+    fetchReports();
+  </script>
+</body>
+</html>

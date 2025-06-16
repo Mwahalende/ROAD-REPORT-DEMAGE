@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Officer Panel</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f0f2f5;
+      padding: 20px;
+    }
+    h2 {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    .filters {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 20px;
+      justify-content: center;
+    }
+    input, select {
+      padding: 10px;
+      font-size: 1em;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 10px;
+      font-size: 14px;
+      text-align: left;
+    }
+    tr:hover {
+      background-color: #e9f0ff;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <h2>Officer </h2>
+
+  <div class="filters">
+    <input type="text" id="filterRoad" placeholder="Filter by Road" />
+    <input type="text" id="filterUser" placeholder="Filter by User Email" />
+    <select id="filterDamage">
+      <option value="">All Damage Classes</option>
+      <option value="A">Class A</option>
+      <option value="B">Class B</option>
+      <option value="C">Class C</option>
+    </select>
+    <input type="date" id="startDate" />
+    <input type="date" id="endDate" />
+    <button onclick="applyFilter()">Apply Filters</button>
+  </div>
+
+  <table id="photoTable">
+    <thead>
+      <tr>
+        <th>Road</th>
+        <th>Damage Class</th>
+        <th>User</th>
+        <th>Date</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody id="photoBody"></tbody>
+  </table>
+
+  <script>
+    // Access control
+    const role = localStorage.getItem('role');
+    if (role !== 'Officer') {
+      alert('Access denied. Officer only.');
+      window.location.href = 'serveryerlogin.html';
+    }
+
+    let allPhotos = [];
+
+    async function fetchPhotos() {
+      const res = await fetch('/get-all-photos');
+      const data = await res.json();
+      allPhotos = data.photos;
+      renderPhotos(allPhotos);
+    }
+
+    function applyFilter() {
+      const road = document.getElementById('filterRoad').value.toLowerCase();
+      const email = document.getElementById('filterUser').value.toLowerCase();
+      const damage = document.getElementById('filterDamage').value;
+      const start = document.getElementById('startDate').value;
+      const end = document.getElementById('endDate').value;
+
+      const filtered = allPhotos.filter(p => {
+        const matchRoad = !road || p.roadName.toLowerCase().includes(road);
+        const matchUser = !email || p.email.toLowerCase().includes(email);
+        const matchDamage = !damage || p.damageClass === damage;
+        const matchStart = !start || new Date(p.dateCreated) >= new Date(start);
+        const matchEnd = !end || new Date(p.dateCreated) <= new Date(end);
+        return matchRoad && matchUser && matchDamage && matchStart && matchEnd;
+      });
+
+      renderPhotos(filtered);
+    }
+
+    function renderPhotos(photos) {
+      const tbody = document.getElementById('photoBody');
+      tbody.innerHTML = '';
+      photos.forEach(p => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${p.roadName}</td>
+          <td>${p.damageClass}</td>
+          <td>${p.email}</td>
+          <td>${new Date(p.dateCreated).toLocaleString()}</td>
+          <td>${p.approvalStatus || 'pending'}</td>
+        `;
+        tr.onclick = () => {
+          localStorage.setItem('selectedPhotoId', p._id);
+          window.location.href = 'officerview.html';
+        };
+        tbody.appendChild(tr);
+      });
+    }
+
+    fetchPhotos();
+  </script>
+</body>
+</html>

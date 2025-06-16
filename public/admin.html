@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Admin Dashboard</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f5f7fa;
+      padding: 20px;
+    }
+    h2 {
+      text-align: center;
+      margin-bottom: 30px;
+    }
+    .section {
+      background: white;
+      padding: 20px;
+      margin-bottom: 30px;
+      border-radius: 10px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+    }
+    input, select, button {
+      padding: 10px;
+      margin: 5px;
+      font-size: 14px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 10px;
+      font-size: 14px;
+      text-align: left;
+    }
+    button.approve {
+      background: #28a745;
+      color: white;
+      border: none;
+      padding: 5px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    button.reject, .delete-btn {
+      background: #dc3545;
+      color: white;
+      border: none;
+      padding: 5px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+
+  <h2>Administrator</h2>
+
+  <!-- Pending Users -->
+  <div class="section">
+    <h3>Pending User Requests</h3>
+    <table>
+      <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Actions</th></tr></thead>
+      <tbody id="pendingTable"></tbody>
+    </table>
+  </div>
+
+  <!-- Add Role -->
+  <div class="section">
+    <h3>Add Role</h3>
+    <form id="roleForm">
+      <select id="roleName">
+        <option value="Surveyor">Surveyor</option>
+        <option value="Officer">Officer</option>
+        <option value="Manager">Manager</option>
+      </select>
+      <button type="submit">Add Role</button>
+    </form>
+    <ul id="roleList"></ul>
+  </div>
+
+  <!-- Add Damage Class -->
+  <div class="section">
+    <h3>Add Damage Class</h3>
+    <form id="damageForm">
+      <select id="damageClass">
+        <option value="A">Class A</option>
+        <option value="B">Class B</option>
+        <option value="C">Class C</option>
+      </select>
+      <input type="text" id="description" placeholder="Description" required />
+      <input type="number" id="repairCost" placeholder="Repair Cost (Tsh)" required />
+      <button type="submit">Add Damage Class</button>
+    </form>
+  </div>
+
+  <!-- All Users -->
+  <div class="section">
+    <h3>All Registered Users</h3>
+    <button onclick="loadAllUsers()">🔄 Load Users</button>
+    <table id="userTable">
+      <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Actions</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <script>
+    async function loadPendingUsers() {
+      const res = await fetch('/pending-users');
+      const users = await res.json();
+      const tbody = document.getElementById('pendingTable');
+      tbody.innerHTML = users.map(u => `
+        <tr>
+          <td>${u.fullname}</td>
+          <td>${u.email}</td>
+          <td>${u.role}</td>
+          <td>
+            <button class="approve" onclick="handleApproval('${u._id}', true)">Approve</button>
+            <button class="reject" onclick="handleApproval('${u._id}', false)">Reject</button>
+            <button class="delete-btn" onclick="deleteUser('${u._id}')">Delete</button>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    async function handleApproval(id, approve) {
+      const url = approve ? `/approve-user/${id}` : `/reject-user/${id}`;
+      const res = await fetch(url, { method: 'PATCH' });
+      if (res.ok) {
+        alert(approve ? 'User approved.' : 'User rejected.');
+        loadPendingUsers();
+        loadAllUsers();
+      }
+    }
+
+    document.getElementById('roleForm').onsubmit = async (e) => {
+      e.preventDefault();
+      const name = document.getElementById('roleName').value;
+      const res = await fetch('/roles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name })
+      });
+      if (res.ok) {
+        alert('Role added.');
+        loadRoles();
+      }
+    };
+
+    async function loadRoles() {
+      const res = await fetch('/roles');
+      const roles = await res.json();
+      document.getElementById('roleList').innerHTML =
+        roles.map(r => `<li>${r.name}</li>`).join('');
+    }
+
+    document.getElementById('damageForm').onsubmit = async (e) => {
+      e.preventDefault();
+      const damageClass = document.getElementById('damageClass').value;
+      const description = document.getElementById('description').value;
+      const repairCost = document.getElementById('repairCost').value;
+      const res = await fetch('/damage-class', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ damageClass, description, repairCost, userId: 'ADMIN' })
+      });
+      if (res.ok) {
+        alert('Damage class added.');
+        document.getElementById('damageForm').reset();
+      }
+    };
+
+    async function loadAllUsers() {
+      const res = await fetch('/all-users');
+      const users = await res.json();
+      const tbody = document.querySelector('#userTable tbody');
+      tbody.innerHTML = users.map(u => `
+        <tr>
+          <td>${u.fullname || '-'}</td>
+          <td>${u.email}</td>
+          <td>${u.role}</td>
+          <td>
+            <button class="delete-btn" onclick="deleteUser('${u._id}')">Delete</button>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    async function deleteUser(userId) {
+      if (!confirm("Delete this user and all their data?")) return;
+      const res = await fetch(`/delete-user/${userId}`, { method: 'DELETE' });
+      const result = await res.json();
+      if (res.ok) {
+        alert(result.message || 'User deleted.');
+        loadPendingUsers();
+        loadAllUsers();
+      } else {
+        alert(result.message || 'Failed to delete.');
+      }
+    }
+
+    loadPendingUsers();
+    loadRoles();
+    loadAllUsers();
+  </script>
+</body>
+</html>

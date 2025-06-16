@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>My Road Damage Reports</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f7f9fc;
+      padding: 20px;
+      max-width: 900px;
+      margin: auto;
+    }
+    h2 {
+      text-align: center;
+      margin-bottom: 10px;
+    }
+    #userInfo {
+      text-align: center;
+      font-weight: bold;
+      margin-bottom: 20px;
+      color: #333;
+    }
+    .filters {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 20px;
+      justify-content: center;
+    }
+    input, button {
+      padding: 10px;
+      font-size: 1em;
+    }
+    button {
+      background: #007bff;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    button:hover {
+      background: #0056b3;
+    }
+    .report {
+      background: #fff;
+      border-radius: 6px;
+      padding: 15px;
+      margin-bottom: 20px;
+      box-shadow: 0 0 8px rgba(0,0,0,0.1);
+    }
+    .report img {
+      width: 100%;
+      max-height: 300px;
+      object-fit: cover;
+      border-radius: 5px;
+      margin-bottom: 10px;
+    }
+    iframe {
+      width: 100%;
+      height: 220px;
+      border: none;
+      margin-top: 10px;
+    }
+    .status {
+      padding: 5px 10px;
+      display: inline-block;
+      border-radius: 5px;
+      font-weight: bold;
+    }
+    .approved { background: #28a745; color: white; }
+    .rejected { background: #6f42c1; color: white; }
+    .cancelled { background: #dc3545; color: white; }
+    .pending { background: #ffc107; color: black; }
+    .actions {
+      margin-top: 10px;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+  </style>
+</head>
+<body>
+  <h2>📸 My  Reports</h2>
+  <p id="userInfo"></p>
+
+  <div class="filters">
+    <input type="text" id="filterRoad" placeholder="Filter by Road/Street" />
+    <input type="date" id="startDate" />
+    <input type="date" id="endDate" />
+    <button onclick="applyFilter()">Apply Filter</button>
+    <button onclick="exportCSV()">Export CSV</button>
+    <button onclick="exportPDF()">Export PDF</button>
+  </div>
+
+  <div id="photosContainer"></div>
+
+  <script>
+    const { jsPDF } = window.jspdf;
+
+    const userId = localStorage.getItem('userId');
+    const fullname = localStorage.getItem('fullname');
+    const role = localStorage.getItem('role');
+
+    if (!userId) {
+      alert('You must log in first.');
+      window.location.href = 'serveryerlogin.html';
+    }
+
+    document.getElementById('userInfo').textContent = `Logged in as: ${fullname || 'Unknown'} (${role || 'User'})`;
+
+    let allPhotos = [];
+
+    async function loadPhotos() {
+      const res = await fetch('/get-all-photos');
+      const data = await res.json();
+      allPhotos = data.photos.filter(p => p.userId === userId);
+      renderPhotos(allPhotos);
+    }
+
+    function applyFilter() {
+      const road = document.getElementById('filterRoad').value.toLowerCase();
+      const startDate = document.getElementById('startDate').value;
+      const endDate = document.getElementById('endDate').value;
+
+      const filtered = allPhotos.filter(photo => {
+        const matchRoad = !road || photo.roadName.toLowerCase().includes(road);
+        const matchStart = !startDate || new Date(photo.dateCreated) >= new Date(startDate);
+        const matchEnd = !endDate || new Date(photo.dateCreated) <= new Date(endDate);
+        return matchRoad && matchStart && matchEnd;
+      });
+
+      renderPhotos(filtered);
+    }
+
+    function renderPhotos(photos) {
+      const container = document.getElementById('photosContainer');
+      container.innerHTML = '';
+
+      if (photos.length === 0) {
+        container.innerHTML = '<p>No reports found.</p>';
+        return;
+      }
+
+      photos.forEach(p => {
+        const statusClass =
+          p.approvalStatus === 'approved' ? 'approved' :
+          p.approvalStatus === 'rejected' ? 'rejected' :
+          p.approvalStatus === 'cancelled' ? 'cancelled' : 'pending';
+
+        const mapURL = `https://maps.google.com/maps?q=${p.location.latitude},${p.location.longitude}&z=16&output=embed`;
+
+        const div = document.createElement('div');
+        div.className = 'report';
+        div.innerHTML = `
+          <img src="${p.photoUrl}" alt="Damage Photo" />
+          <p><strong>Road:</strong> ${p.roadName}</p>
+          <p><strong>Damage Class:</strong> ${p.damageClass}</p>
+          <p><strong>Comment:</strong> ${p.comment}</p>
+          <p><strong>Submitted:</strong> ${new Date(p.dateCreated).toLocaleString()}</p>
+          <p><strong>Status:</strong> <span class="status ${statusClass}">${p.approvalStatus.toUpperCase()}</span></p>
+          ${p.officerComment ? `<p><strong>Officer Comment:</strong> ${p.officerComment}</p>` : ''}
+          ${p.contractor ? `<p><strong>Contractor:</strong> ${p.contractor}</p>` : ''}
+          ${p.budget ? `<p><strong>Budget:</strong> ${p.budget.toLocaleString()} TZS</p>` : ''}
+          <iframe src="${mapURL}"></iframe>
+          <div class="actions">
+            <button onclick="deleteReport('${p._id}')">❌ Delete</button>
+            ${p.approvalStatus === 'rejected' ? `<button onclick="repeatProject()">🔁 Repeat Project</button>` : ''}
+          </div>
+        `;
+        container.appendChild(div);
+      });
+    }
+
+    async function deleteReport(photoId) {
+      if (!confirm('Are you sure you want to delete this report?')) return;
+      const res = await fetch(`/delete-photo/${photoId}`, { method: 'DELETE' });
+      if (res.ok) {
+        alert('Report deleted');
+        loadPhotos();
+      } else {
+        alert('Failed to delete');
+      }
+    }
+
+    function repeatProject() {
+      window.location.href = 'serveryer.html';
+    }
+
+    function exportCSV() {
+      const csv = ['Road,Damage Class,Comment,Date,Status,Contractor,Budget'];
+      allPhotos.forEach(p => {
+        csv.push(`"${p.roadName}","${p.damageClass}","${p.comment}","${new Date(p.dateCreated).toLocaleString()}","${p.approvalStatus}","${p.contractor || ''}","${p.budget || ''}"`);
+      });
+      const blob = new Blob([csv.join('\n')], { type: 'text/csv' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = 'my_damage_reports.csv';
+      link.click();
+    }
+
+    async function exportPDF() {
+      const doc = new jsPDF();
+      let y = 10;
+      for (let i = 0; i < allPhotos.length; i++) {
+        const p = allPhotos[i];
+        const imgData = await toDataURL(p.photoUrl);
+        doc.addImage(imgData, 'JPEG', 10, y, 50, 40);
+        doc.setFontSize(10);
+        doc.text(
+          `Road: ${p.roadName}\nDamage: ${p.damageClass}\nComment: ${p.comment}\nStatus: ${p.approvalStatus}\nDate: ${new Date(p.dateCreated).toLocaleString()}`,
+          65, y + 5
+        );
+        y += 50;
+        if (y > 270) {
+          doc.addPage();
+          y = 10;
+        }
+      }
+      doc.save('my_reports.pdf');
+    }
+
+    function toDataURL(url) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.crossOrigin = 'Anonymous';
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = img.width / 2;
+          canvas.height = img.height / 2;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          resolve(canvas.toDataURL('image/jpeg'));
+        };
+        img.onerror = reject;
+        img.src = url;
+      });
+    }
+
+    window.onload = loadPhotos;
+  </script>
+</body>
+</html>

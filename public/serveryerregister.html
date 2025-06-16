@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Surveyor Registration</title>
+  <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f3f4f6;
+      padding: 30px;
+      max-width: 500px;
+      margin: auto;
+    }
+    h2 {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    input, select, button {
+      width: 100%;
+      padding: 12px;
+      margin: 10px 0;
+      font-size: 16px;
+    }
+    button {
+      background: #007bff;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    button:hover {
+      background: #0056b3;
+    }
+    .hidden {
+      display: none;
+    }
+    #message {
+      text-align: center;
+      margin-top: 15px;
+      color: green;
+      font-weight: bold;
+    }
+    #message.error {
+      color: red;
+    }
+  </style>
+</head>
+<body>
+
+  <h2>Register for Road Damage System</h2>
+
+  <!-- Step 1: Full Name + Email -->
+  <form id="emailForm">
+    <input type="text" id="fullname" placeholder="Enter your full name" required />
+    <input type="email" id="email" placeholder="Enter your email" required />
+    <button type="submit">Next</button>
+  </form>
+<a href="serveryerlogin.html"><button type="button">login</button></a>
+  <!-- Step 2: Select Role -->
+  <form id="roleForm" class="hidden">
+    <select id="roleSelect" required></select>
+    <button type="submit">Request Registration</button>
+  </form>
+
+  <div id="message"></div>
+
+  <hr />
+  <h3>Forgot Password?</h3>
+  <form id="forgotForm">
+    <input type="email" id="forgotEmail" placeholder="Enter your email" required />
+    <button type="submit">Send New Password</button>
+  </form>
+
+  <script>
+    const socket = io('http://localhost:3000');
+    const emailForm = document.getElementById('emailForm');
+    const roleForm = document.getElementById('roleForm');
+    const emailInput = document.getElementById('email');
+    const fullnameInput = document.getElementById('fullname');
+    const roleSelect = document.getElementById('roleSelect');
+    const messageDiv = document.getElementById('message');
+
+    let savedEmail = '';
+    let savedName = '';
+
+    emailForm.onsubmit = async (e) => {
+      e.preventDefault();
+      const email = emailInput.value.trim();
+      const fullname = fullnameInput.value.trim();
+
+      if (!fullname || !email) {
+        messageDiv.textContent = 'Both name and email are required.';
+        messageDiv.className = 'error';
+        return;
+      }
+
+      const res = await fetch('/check-email?email=' + encodeURIComponent(email));
+      const data = await res.json();
+
+      if (data.exists) {
+        messageDiv.textContent = '❌ Email already registered or pending approval.';
+        messageDiv.className = 'error';
+      } else {
+        savedEmail = email;
+        savedName = fullname;
+        emailForm.classList.add('hidden');
+        roleForm.classList.remove('hidden');
+        socket.emit('registerEmail', savedEmail);
+        loadRoles();
+      }
+    };
+
+    async function loadRoles() {
+      const res = await fetch('/roles');
+      const roles = await res.json();
+      roleSelect.innerHTML = '<option value="">Select role</option>' +
+        roles.map(r => `<option value="${r.name}">${r.name}</option>`).join('');
+    }
+
+    roleForm.onsubmit = async (e) => {
+      e.preventDefault();
+      const role = roleSelect.value;
+      if (!role) return alert('Please select a role.');
+
+      const res = await fetch('/request-registration', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: savedEmail, fullname: savedName, role })
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        messageDiv.textContent = '✅ Request submitted. Waiting for admin approval...';
+        messageDiv.className = '';
+        roleForm.classList.add('hidden');
+      } else {
+        messageDiv.textContent = data.message || 'Something went wrong.';
+        messageDiv.className = 'error';
+      }
+    };
+
+    // 🔔 Realtime Admin Response
+    socket.on('registrationStatus', data => {
+      messageDiv.textContent = data.message;
+      messageDiv.className = (data.status === 'rejected') ? 'error' : '';
+    });
+
+    // Forgot Password
+    document.getElementById('forgotForm').onsubmit = async (e) => {
+      e.preventDefault();
+      const email = document.getElementById('forgotEmail').value;
+      const res = await fetch('/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
+      });
+
+      const result = await res.json();
+      if (res.ok) {
+        alert('✅ A new password was sent to your email.');
+      } else {
+        alert(result.message || 'Failed to reset password.');
+      }
+    };
+  </script>
+</body>
+</html>

@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Officer Report Review</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f2f4f8;
+      padding: 20px;
+      max-width: 750px;
+      margin: auto;
+    }
+    h2 {
+      text-align: center;
+    }
+    img {
+      width: 100%;
+      margin: 20px 0;
+      border-radius: 10px;
+    }
+    .info p {
+      margin: 6px 0;
+      font-size: 15px;
+    }
+    iframe {
+      width: 100%;
+      height: 250px;
+      border: none;
+      margin-top: 10px;
+    }
+    textarea, input {
+      width: 100%;
+      padding: 10px;
+      margin: 10px 0;
+      font-size: 14px;
+    }
+    button {
+      padding: 10px 16px;
+      margin: 5px;
+      font-weight: bold;
+      cursor: pointer;
+      border: none;
+      border-radius: 5px;
+    }
+    .approve { background: #28a745; color: white; }
+    .reject { background: #dc3545; color: white; }
+    .cancel { background: #6c757d; color: white; }
+    .download { background: #007bff; color: white; }
+  </style>
+</head>
+<body>
+
+  <h2>Officer Report Review</h2>
+  <div id="content">Loading...</div>
+
+  <script>
+    const role = localStorage.getItem('role');
+    if (role !== 'Officer') {
+      alert('Access denied');
+      window.location.href = 'serveryerlogin.html';
+    }
+
+    const photoId = localStorage.getItem('selectedPhotoId');
+    const contentDiv = document.getElementById('content');
+    let currentPhoto = null;
+
+    async function loadPhoto() {
+      const res = await fetch('/get-all-photos');
+      const data = await res.json();
+      const photo = data.photos.find(p => p._id === photoId);
+      if (!photo) {
+        contentDiv.innerHTML = '<p>Photo not found.</p>';
+        return;
+      }
+      currentPhoto = photo;
+
+      const loc = photo.location || {};
+      const mapURL = `https://maps.google.com/maps?q=${loc.latitude},${loc.longitude}&hl=es&z=16&output=embed`;
+
+      contentDiv.innerHTML = `
+        <img src="${photo.photoUrl}" alt="Damage Image" />
+        <div class="info">
+          <p><strong>Surveyor:</strong> ${photo.fullname} (${photo.email})</p>
+          <p><strong>Road:</strong> ${photo.roadName}</p>
+          <p><strong>Damage Class:</strong> ${photo.damageClass}</p>
+          <p><strong>Comment:</strong> ${photo.comment}</p>
+          <p><strong>Date:</strong> ${new Date(photo.dateCreated).toLocaleString()}</p>
+          <p><strong>Location:</strong> ${loc.street || ''}, ${loc.city || ''}, ${loc.region || ''}, ${loc.country || ''}</p>
+          <p><strong>Coords:</strong> ${loc.latitude?.toFixed(5)}, ${loc.longitude?.toFixed(5)}</p>
+        </div>
+        <iframe src="${mapURL}" loading="lazy"></iframe>
+
+        <textarea id="officerComment" placeholder="Officer comments">${photo.officerComment || ''}</textarea>
+        <input type="text" id="contractor" placeholder="Enter contractor name" value="${photo.contractor || ''}" />
+
+        <button class="approve" onclick="submitAction('approved')">Approve</button>
+        <button class="reject" onclick="submitAction('rejected')">Reject</button>
+        <button class="cancel" onclick="submitAction('cancelled')">Cancel</button>
+        <button class="download" onclick="downloadPDF()">Download PDF</button>
+      `;
+    }
+
+    async function submitAction(action) {
+      const officerComment = document.getElementById('officerComment').value;
+      const contractor = document.getElementById('contractor').value;
+      const validatedByOfficerId = localStorage.getItem('userId');
+
+      const res = await fetch(`/officer-review/${photoId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          approvalStatus: action,
+          officerComment,
+          contractor,
+          validatedByOfficerId
+        })
+      });
+
+      const result = await res.json();
+      alert(result.message || 'Updated');
+      window.location.href = 'officer.html';
+    }
+
+    async function downloadPDF() {
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF();
+      const image = new Image();
+      image.crossOrigin = 'anonymous';
+      image.src = currentPhoto.photoUrl;
+
+      image.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = image.width / 3;
+        canvas.height = image.height / 3;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+        const imgData = canvas.toDataURL('image/jpeg');
+
+        doc.addImage(imgData, 'JPEG', 10, 10, 80, 60);
+        doc.setFontSize(11);
+        doc.text(`Surveyor: ${currentPhoto.fullname} (${currentPhoto.email})`, 10, 75);
+        doc.text(`Road: ${currentPhoto.roadName}`, 10, 82);
+        doc.text(`Damage Class: ${currentPhoto.damageClass}`, 10, 89);
+        doc.text(`Comment: ${currentPhoto.comment}`, 10, 96);
+        doc.text(`Contractor: ${document.getElementById('contractor').value}`, 10, 103);
+        doc.text(`Officer Comment: ${document.getElementById('officerComment').value}`, 10, 110);
+        doc.save(`review_${Date.now()}.pdf`);
+      };
+    }
+
+    loadPhoto();
+  </script>
+</body>
+</html>
